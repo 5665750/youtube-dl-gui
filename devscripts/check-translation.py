@@ -89,6 +89,7 @@ def parse_date(date_string):
 
     # Just a small list with the most common timezones
     offset_list = [
+        ("JST", "0900"),
         ("EEST", "0300"),
         ("EET", "0200"),
         ("GMT", "0000"),
@@ -179,10 +180,6 @@ def main(args):
 
     pinfo("Checking translations, this might take a while...")
 
-    eta = timedelta(seconds=len(pot_file) * WTIME)
-
-    pinfo("Approximate time to check translations online: {}".format(eta))
-
     pot_msgid = [entry.msgid for entry in pot_file]
     po_msgid = [entry.msgid for entry in po_file]
 
@@ -198,22 +195,28 @@ def main(args):
         if msgid not in po_msgid:
             missing_msgid.append(msgid)
 
-    translator = google_translate.GoogleTranslator(timeout=5.0, retries=2, wait_time=WTIME)
+    # Init translator only if the '--no-translate' flag is NOT set
+    translator = None
+    if not args.no_translate:
+        translator = google_translate.GoogleTranslator(timeout=5.0, retries=2, wait_time=WTIME)
 
-    # Set source language for GoogleTranslator
-    if args.tlang is not None:
-        src_lang = args.tlang
-        pinfo("Forcing '{}' as the translator's source language".format(src_lang))
-    else:
-        # Get a valid source language for Google
-        # for example convert 'ar_SA' to 'ar' or 'zh_CN' to 'zh-CN'
-        src_lang = args.language
-
-        if src_lang not in translator._lang_dict:
-            src_lang = src_lang.replace("_", "-")
+        # Set source language for GoogleTranslator
+        if args.tlang is not None:
+            src_lang = args.tlang
+            pinfo("Forcing '{}' as the translator's source language".format(src_lang))
+        else:
+            # Get a valid source language for Google
+            # for example convert 'ar_SA' to 'ar' or 'zh_CN' to 'zh-CN'
+            src_lang = args.language
 
             if src_lang not in translator._lang_dict:
-                src_lang = src_lang.split("-")[0]
+                src_lang = src_lang.replace("_", "-")
+
+                if src_lang not in translator._lang_dict:
+                    src_lang = src_lang.split("-")[0]
+
+    # Keep entries that need further analysis using the translator
+    further_analysis = []
 
     for entry in po_file:
         if not entry.translated():
@@ -223,10 +226,24 @@ def main(args):
             same_msgstr.append(entry)
 
         else:
-            if args.no_translate:
-                continue
+            further_analysis.append(entry)
 
-            word_dict = translator.get_info_dict(entry.msgstr, "en", src_lang)
+    if translator is not None and further_analysis:
+        # eta = (items_to_analyze * (WTIME + avg_ms)) - WTIME
+        # We subtract WTIME at the end because there is no wait for the last item on the list
+        # avg_msg = 200ms
+        eta_seconds = (len(further_analysis) * (WTIME + 0.2)) - WTIME
+        eta_seconds = int(round(eta_seconds))
+
+        eta = timedelta(seconds=eta_seconds)
+        pinfo("Approximate time to check translations online: {}".format(eta))
+
+        # Pass translations as a list since GoogleTranslator can handle them
+        words_dict = translator.get_info_dict([entry.msgstr for entry in further_analysis], "en", src_lang)
+
+        for index, word_dict in enumerate(words_dict):
+            # Get the corresponding POEntry since the words_dict does not contain those
+            entry = further_analysis[index]
 
             if word_dict is not None:
                 if word_dict["has_typo"]:
@@ -244,8 +261,6 @@ def main(args):
 
                     if not found:
                         verify_trans.append((entry, word_dict["translation"]))
-
-            sleep(WTIME)
 
     # time to report
     print("=" * 25 + "Report" + "=" * 25)
@@ -297,6 +312,8 @@ def main(args):
     print("Verify translation\t: {}".format(len(verify_trans)))
     print("Fuzzy translations\t: {}".format(len(fuzzy_trans)))
     print("Total\t\t\t: {}".format(total))
+    print("")
+    print("Total entries\t\t: {}".format(len(po_file)))
 
 
 if __name__ == "__main__":

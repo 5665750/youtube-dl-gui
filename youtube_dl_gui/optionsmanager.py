@@ -5,15 +5,16 @@
 
 from __future__ import unicode_literals
 
+import os
 import json
-import os.path
 
 from .utils import (
     os_path_expanduser,
     os_path_exists,
     encode_tuple,
     decode_tuple,
-    check_path
+    check_path,
+    get_default_lang
 )
 
 from .formats import (
@@ -231,6 +232,8 @@ class OptionsManager(object):
 
             add_metadata (boolean): When True will write metadata to file.
 
+            disable_update (boolean): When True the update process will be disabled.
+
         """
         #REFACTOR Remove old options & check options validation
         self.options = {
@@ -282,7 +285,7 @@ class OptionsManager(object):
             'enable_log': True,
             'log_time': True,
             'workers_number': 3,
-            'locale_name': 'en_US',
+            'locale_name': get_default_lang(),
             'main_win_size': (740, 490),
             'opts_win_size': (640, 490),
             'selected_video_formats': ['webm', 'mp4'],
@@ -296,8 +299,15 @@ class OptionsManager(object):
             'confirm_deletion': True,
             'nomtime': False,
             'embed_thumbnail': False,
-            'add_metadata': False
+            'add_metadata': False,
+            'disable_update': False
         }
+
+        # Set the youtubedl_path again if the disable_update option is set
+        new_path = '/usr/bin'
+
+        if self.options['disable_update'] and os.name != 'nt' and os_path_exists(new_path):
+            self.options['youtubedl_path'] = new_path
 
     def load_from_file(self):
         """Load options from settings file. """
